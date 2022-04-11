@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { Program, Provider, web3 } from '@project-serum/anchor';
 import { MintLayout, TOKEN_PROGRAM_ID, Token } from '@solana/spl-token';
+import { programs } from '@metaplex/js';
 import { sendTransactions } from './connection';
 import './CandyMachine.css';
 import {
@@ -15,11 +16,15 @@ import {
 } from './helpers';
 import CountdownTimer from '../CountdownTimer';
 
+const { metadata: { Metadata } } = programs;
+
 const { SystemProgram } = web3;
 const opts = { preflightCommitment: 'processed' };
 
 const CandyMachine = ({ walletAddress }) => {
   const [candyMachine, setCandyMachine] = useState(null);
+  const [mints, setMints] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   const getCandyMachineCreator = async (candyMachine) => {
     const candyMachineID = new PublicKey(candyMachine);
@@ -129,8 +134,34 @@ const CandyMachine = ({ walletAddress }) => {
     });
   }
 
+  const getMintedNFTs = useCallback(async () => {
+    setLoading(true);
+
+    try {
+      let imgUrls = [];
+      if (!candyMachine) return;
+      const candyMachinePubKey = await getCandyMachineCreator(candyMachine.id);
+
+      const findMany = await Metadata.findMany(candyMachine.program.provider.connection,
+        { creators: [candyMachinePubKey[0].toString()] }
+      );
+
+      for (const nft of findMany) {
+        const metaDataUri = nft.data.data.uri;
+        let response = await fetch(metaDataUri);
+        let imgUrl = await response.json();
+        imgUrls.push(imgUrl);
+      }
+      setMints(imgUrls);
+    } catch (e) {
+      console.error("Unable to get minted nfts", e);
+    }
+    setLoading(false);
+  }, [candyMachine, mints])
+
   useEffect(() => {
     getCandyMachineState();
+    getMintedNFTs();
   }, []);
 
   const createAssociatedTokenAccountInstruction = (
@@ -370,6 +401,19 @@ const CandyMachine = ({ walletAddress }) => {
     return <p>{`Drop Date: ${candyMachine.state.goLiveDateTimeString}`}</p>;
   }
 
+  const renderMintedItems = () => (
+    <div className="gif-container">
+      <p className="sub-text">Minted Servants ✨</p>
+      <div className="gif-grid">
+        {mints.map((mint, i) => (
+          <div className="gif-item" key={i}>
+            <img src={mint.image} alt={`Minted NFT ${mint}`} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
   return (
     candyMachine && candyMachine.state && (
       <div className="machine-container">
@@ -382,6 +426,8 @@ const CandyMachine = ({ walletAddress }) => {
             Mint NFT
           </button>
         )}
+        {mints.length > 0 && renderMintedItems()}
+        {loading && <p>LOADING MINTS...</p>}
       </div>
     )
   );
